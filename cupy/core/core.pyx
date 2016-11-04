@@ -1088,19 +1088,52 @@ cdef class ndarray:
 
     def __setitem__(self, slices, value):
         cdef ndarray v, x, y
-        v = self[slices]
-        if isinstance(value, ndarray):
-            y, x = broadcast(v, value).values
-            if (internal.vector_equal(y._shape, x._shape) and
-                    internal.vector_equal(y._strides, x._strides)):
-                if y.data.ptr == x.data.ptr:
-                    return  # Skip since x and y are the same array
-                elif y._c_contiguous and x.dtype == y.dtype:
-                    y.data.copy_from(x.data, x.nbytes)
-                    return
-            elementwise_copy(x, y)
+
+        # Check if advanced is true and if there are multiple integer indexing
+        advanced = False
+        axis = None
+        for i, s in enumerate(slices):
+            if isinstance(s, (numpy.ndarray, ndarray)):
+                if s.dtype in [numpy.int64, numpy.int32,
+                               numpy.int16, numpy.int8]:
+                    if advanced:
+                        advanced = True
+                        axis = None
+                    else:
+                        advanced = True
+                        axis = i
+                else:
+                    raise ValueError('Advanced indexing with' +\
+                                     'non-integer array is not supported')
+
+        if advanced:
+            if (axis is not None and 
+                all(isinstance(a, slice) and
+                    equal_slices(a, slice(None)) for a in slices[:axis]) and
+                all(isinstance(a, slice) and
+                    equal_slices(a, slice(None)) for a in slices[axis + 1:])):
+                index = slices[axis]
+                shp = self.shape
+                out_shp = shp[:axis] + index.shape + shp[axis+1:]
+                return 
+            else:
+                raise NotImplementedError('Adv indexing with 2 or ' +\
+                                          'more arrays is not supported')
+             
         else:
-            v.fill(value)
+            v = self[slices]
+            if isinstance(value, ndarray):
+                y, x = broadcast(v, value).values
+                if (internal.vector_equal(y._shape, x._shape) and
+                        internal.vector_equal(y._strides, x._strides)):
+                    if y.data.ptr == x.data.ptr:
+                        return  # Skip since x and y are the same array
+                    elif y._c_contiguous and x.dtype == y.dtype:
+                        y.data.copy_from(x.data, x.nbytes)
+                        return
+                elementwise_copy(x, y)
+            else:
+                v.fill(value)
 
     # TODO(okuta): Implement __getslice__
     # TODO(okuta): Implement __setslice__
