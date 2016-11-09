@@ -1,55 +1,44 @@
 import unittest
 
-import numpy as np
-
-import cupy
 from cupy import testing
 
 
+@testing.parameterize(
+    {'shape': (2, 3, 4), 'transpose': None, 'indexes': (slice(None), [1, 0])},
+    {'shape': (2, 3, 4), 'transpose': (1, 2, 0), 'indexes': (slice(None), [1, 0])},
+    {'shape': (2, 3, 4), 'transpose': None, 'indexes': ([1, -1], slice(None))},
+    {'shape': (2, 3, 4), 'transpose': None, 'indexes': (Ellipsis, [1, 0])},
+    {'shape': (2, 3, 4), 'transpose': None, 'indexes': ([1, -1], Ellipsis)},
+    {'shape': (2, 3, 4), 'transpose': None,
+     'indexes': (slice(None), slice(None), [1, -1])},
+    {'shape': (2, 3, 4), 'transpose': None,
+     'indexes': (slice(None), slice(None), [[1, -1], [0, 3]])},
+)
 @testing.gpu
-class TestArrayAdvancedIndexing(unittest.TestCase):
+class TestArrayAdvancedIndexingParametrized(unittest.TestCase):
 
     @testing.for_all_dtypes()
     @testing.numpy_cupy_array_equal()
-    def test_1d_adv_indexing(self, xp, dtype):
-        shp = (2, 3, 4)
-        a = xp.arange(np.product(shp)).reshape(shp).astype(dtype)
-        idx = (slice(None), np.array([1, 0]), slice(None))
-        return a[idx]
+    def test_adv_getitem(self, xp, dtype):
+        a = testing.shaped_arange(self.shape, xp, dtype)
+        if self.transpose:
+            a = a.transpose(self.transpose)
+        return a[self.indexes]
+
+
+@testing.parameterize(
+    {'shape': (), 'transpose': None, 'indexes': ([1],)},
+    {'shape': (2, 3), 'transpose': None,
+     'indexes': (slice(None), [1], slice(None))},
+)
+@testing.gpu
+class TestArrayInvalidIndexAdv(unittest.TestCase):
 
     @testing.for_all_dtypes()
-    @testing.numpy_cupy_array_equal()
-    def test_1d_adv_indexing_gpu_idx(self, xp, dtype):
-        shp = (2, 3, 4)
-        a = xp.arange(np.product(shp)).reshape(shp).astype(dtype)
-        idx = (slice(None), xp.array([1, 0]), slice(None))
-        return a[idx]
+    @testing.numpy_cupy_raises()
+    def test_invalid_adv_getitem(self, xp, dtype):
 
-    @testing.for_all_dtypes()
-    @testing.numpy_cupy_array_equal()
-    def test_2d_adv_indexing_gpu_idx(self, xp, dtype):
-        shp = (2, 3, 4)
-        a = xp.arange(np.product(shp)).reshape(shp).astype(dtype)
-        idx = (slice(None), xp.array([[0, 1], [1, 0]]), slice(None))
-        return a[idx]
-
-    def test_not_supported_arr_and_int(self):
-        shp = (2, 3, 4)
-        a = cupy.arange(np.product(shp)).reshape(shp)
-        idx = (slice(None), np.array([1, 0]), 1)
-        with self.assertRaises(NotImplementedError):
-            a[idx]
-
-    def test_not_supported_two_arr(self):
-        shp = (2, 3, 4)
-        a = cupy.arange(np.product(shp)).reshape(shp)
-        idx = (slice(None), np.array([1, 0]), np.array([1, 0]))
-        with self.assertRaises(NotImplementedError):
-            a[idx]
-
-    def test_not_supporeted_arr_and_none(self):
-        shp = (2, 3, 4)
-        a = cupy.arange(np.product(shp)).reshape(shp)
-        idx = (slice(None), np.array([1, 0]), None)
-        with self.assertRaises(NotImplementedError):
-            a[idx]
+        a = testing.shaped_arange(self.shape, xp, dtype)
+        if self.transpose:
+            a = a.transpose(self.transpose)
+        a[self.indexes]
