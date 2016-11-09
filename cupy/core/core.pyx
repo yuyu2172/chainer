@@ -1042,6 +1042,7 @@ cdef class ndarray:
         # Check if advanced is true and if there are multiple integer indexing
         advanced = False
         axis = None
+        index_error_flag = False
         for i, s in enumerate(slices):
             if isinstance(s, list):
                 s = numpy.array(s)
@@ -1055,8 +1056,16 @@ cdef class ndarray:
                         advanced = True
                         axis = i
                 else:
-                    raise ValueError('Advanced indexing with ' +
-                                     'non-integer array is not supported')
+                    index_error_flag = True
+
+            elif not isinstance(s, (int, slice, type(Ellipsis), type(None))): 
+                index_error_flag = True
+
+        if index_error_flag:
+            raise IndexError(
+                'only integers, slices (`:`), ellipsis (`...`),'
+                'numpy.newaxis (`None`) and integer or'
+                'boolean arrays are valid indices')
 
         if advanced:
             if axis is not None:
