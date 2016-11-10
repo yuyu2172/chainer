@@ -1084,50 +1084,43 @@ cdef class ndarray:
                     axis = i
 
         if advanced:
+            # When slices are combination of basic and advanced indexing,
+            # slice and None are handled independently by the basic 
+            # indexing routine.
+            # Integer and ndarray are handled by the adv-indexing routine.
+            # In the routine, Integer and ndarray of dimension zero are
+            # treated as array of shape (1,).
+            basic_slices = []
+            adv_slices = []
+            for i, s in enumerate(slices):
+                if type(s) is slice:
+                    basic_slices.append(s)
+                    adv_slices.append(slice(None))
+                elif s is None:
+                    basic_slices.append(None)
+                    adv_slices.append(slice(None))
+                elif (isinstance(s, ndarray) and 
+                        issubclass(s.dtype.type, numpy.integer)):
+                    basic_slices.append(slice(None))
+                    if s.ndim == 0:
+                        s = s.reshape((1,))
+                    adv_slices.append(s)
+                elif isinstance(s, int):
+                    basic_slices.append(slice(None))
+                    adv_slices.append(array(s, ndmin=1))
+                else:
+                    raise ValueError
+
+            # check if this is a combination of basic and advanced indexing
             noneslice = slice(None)
+            for s in basic_slices:
+                if s is None or (isinstance(s, slice) and s != noneslice):
+                    self = self[tuple(basic_slices)]
+                    break
+
             if axis is not None:
-                flag = True
-                for i, s in enumerate(slices):
-                    if i != axis and s != noneslice:
-                        flag = False
-                        break
-                if flag:
-                    return self.take(slices[axis], axis)
-            else:
-                # When slices are combination of basic and advanced indexing,
-                # slice and None are handled independently by the basic 
-                # indexing routine.
-                # Integer and ndarray are handled by the adv-indexing routine.
-                # In the routine, Integer and ndarray of dimension zero are
-                # treated as array of shape (1,).
-                basic_slices = []
-                adv_slices = []
-                for i, s in enumerate(slices):
-                    if type(s) is slice:
-                        basic_slices.append(s)
-                        adv_slices.append(slice(None))
-                    elif s is None:
-                        basic_slices.append(None)
-                        adv_slices.append(slice(None))
-                    elif (isinstance(s, ndarray) and 
-                          issubclass(s.dtype.type, numpy.integer)):
-                        basic_slices.append(slice(None))
-                        if s.ndim == 0:
-                            s = s.reshape((1,))
-                        adv_slices.append(s)
-                    elif isinstance(s, int):
-                        basic_slices.append(slice(None))
-                        adv_slices.append(array(s, ndmin=1))
-                    else:
-                        raise ValueError
-
-                # check if this is a combination of basic and advanced indexing
-                for s in basic_slices:
-                    if s is None or (isinstance(s, slice) and s != noneslice):
-                        self = self[tuple(basic_slices)]
-                        break
-
-                return _adv_getitem(self, adv_slices)
+                return self.take(slices[axis], axis)
+            return _adv_getitem(self, adv_slices)
 
         # Create new shape and stride
         j = 0
