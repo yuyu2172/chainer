@@ -1068,15 +1068,20 @@ cdef class ndarray:
                 slices[i] = s
             if isinstance(s, ndarray):
                 if issubclass(s.dtype.type, numpy.integer):
-                    if advanced:
+                    if axis is not None:
                         advanced = True
                         axis = None
-                    else:
+                    elif not advanced and axis is None:
                         advanced = True
                         axis = i
                 else:
                     raise ValueError('Advanced indexing with ' +
                                      'non-integer array is not supported')
+            if isinstance(s, int):
+                if advanced:
+                    axis = None
+                else:
+                    axis = i
 
         if advanced:
             noneslice = slice(None)
