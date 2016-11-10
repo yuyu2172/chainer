@@ -1079,9 +1079,9 @@ cdef class ndarray:
                                      'non-integer array is not supported')
 
         if advanced:
+            noneslice = slice(None)
             if axis is not None:
                 flag = True
-                noneslice = slice(None)
                 for i, s in enumerate(slices):
                     if i != axis and s != noneslice:
                         flag = False
@@ -1089,8 +1089,40 @@ cdef class ndarray:
                 if flag:
                     return self.take(slices[axis], axis)
             else:
-                raise NotImplementedError(
-                    'Adv indexing with 2 or more arrays is not supported')
+                # When slices are combination of basic and advanced indexing,
+                # slice and None are handled independently by the basic 
+                # indexing routine.
+                # Integer and ndarray are handled by the adv-indexing routine.
+                # In the routine, Integer and ndarray of dimension zero are
+                # treated as array of shape (1,).
+                basic_slices = []
+                adv_slices = []
+                for i, s in enumerate(slices):
+                    if type(s) is slice:
+                        basic_slices.append(s)
+                        adv_slices.append(slice(None))
+                    elif s is None:
+                        basic_slices.append(None)
+                        adv_slices.append(slice(None))
+                    elif (isinstance(s, ndarray) and 
+                          issubclass(s.dtype.type, numpy.integer)):
+                        basic_slices.append(slice(None))
+                        if s.ndim == 0:
+                            s = s.reshape((1,))
+                        adv_slices.append(s)
+                    elif isinstance(s, int):
+                        basic_slices.append(slice(None))
+                        adv_slices.append(array(s, ndmin=1))
+                    else:
+                        raise ValueError
+
+                # check if this is a combination of basic and advanced indexing
+                for s in basic_slices:
+                    if s is None or (isinstance(s, slice) and s != noneslice):
+                        self = self[tuple(basic_slices)]
+                        break
+
+                return _adv_getitem(self, adv_slices)
 
         # Create new shape and stride
         j = 0
@@ -2034,6 +2066,79 @@ cpdef ndarray _diagonal(ndarray a, Py_ssize_t offset=0, Py_ssize_t axis1=0,
         a.shape[:-2] + (diag_size,),
         a.strides[:-2] + (a.strides[-1] + a.strides[-2],))
     return ret
+
+
+def _adv_getitem(a, slices):
+    # slices consist of either None or ndarray of dim>=1
+
+    arr_slices = [s for s in slices if isinstance(s, ndarray)]
+    br_shape = broadcast(*arr_slices).shape
+
+    # check if transpose is necessasry
+    # li:  index of the leftmost array in slices
+    # ri:  index of the rightmost array in slices
+    do_transpose = False
+    prev_arr_i = None
+    li = 0
+    ri = 0
+    for i, s in enumerate(list(slices)):
+        if (isinstance(s, ndarray)):
+            if prev_arr_i is None:
+                prev_arr_i = i
+                li = i
+            else:
+                if i - prev_arr_i > 1:
+                    do_transpose = True
+                else:
+                    prev_arr_i = i
+                    ri = i
+
+    # broadcast all arrays to the largest shape
+    for i, s in enumerate(list(slices)):
+        if (isinstance(s, ndarray)):
+            slices[i] = broadcast_to(slices[i], br_shape)
+
+    if do_transpose:
+        transp = range(a.ndim)
+        p = 0
+        for i, s in enumerate(list(slices)):
+            if isinstance(s, ndarray):
+                transp.remove(i)
+                transp.insert(p, i)
+                tmp = slices.pop(i)
+                slices.insert(p, tmp)
+                p += 1
+        a = a.transpose(*transp)
+
+        li = 0
+        ri = p - 1
+
+    # flatten the array-indexed dimensions
+    shape = a.shape[:li]  + (internal.prod_ssize_t(a.shape[li:ri+1]),) + a.shape[ri+1:]
+    input_flat = a.reshape(shape)
+
+    # build the strides
+    strides = [1]
+    for i in range(ri, li, -1):
+        stride = a.shape[i] * strides[0]
+        strides.insert(0, stride)
+
+    # convert all negative indices to wrap_indices
+    for i in range(li, ri+1):
+        slices[i] = slices[i] % a.shape[i]
+
+    flattened_indexes = []
+    for i, s in zip(slices[li:ri+1], strides):
+        flattened_indexes.append(i * s)  
+    
+    import cupy
+    take_idx = _sum(cupy.stack(flattened_indexes), axis=0)
+
+    out_flat = input_flat.take(take_idx.flatten(), axis=li)
+
+    out_flat_shape = a.shape[:li] + take_idx.shape + a.shape[ri+1:]
+    o = out_flat.reshape(out_flat_shape)
+    return o
 
 
 # -----------------------------------------------------------------------------
