@@ -2066,8 +2066,10 @@ cpdef ndarray _diagonal(ndarray a, Py_ssize_t offset=0, Py_ssize_t axis1=0,
     return ret
 
 
-def _adv_getitem(a, slices):
+cpdef ndarray _adv_getitem(ndarray a, slices):
     # slices consist of either None or ndarray of dim>=1
+    cdef int i, p, li, ri
+    cdef ndarray take_idx, input_flat, out_flat, o
 
     arr_slices = [s for s in slices if isinstance(s, ndarray)]
     br_shape = broadcast(*arr_slices).shape
@@ -2126,13 +2128,14 @@ def _adv_getitem(a, slices):
         slices[i] = slices[i] % a.shape[i]
 
     flattened_indexes = []
-    for i, s in zip(slices[li:ri+1], strides):
-        flattened_indexes.append(i * s)  
-    
-    shape = (len(flattened_indexes),) + br_shape
+    for stride, s in zip(stride, slices[li:ri+1]):
+        flattened_indexes.append(stride * s)
+
+    # do stack: flattened_indexes = stack(flattened_indexes, axis=0)
+    concat_shape = (len(flattened_indexes),) + br_shape
     flattened_indexes = concatenate(
         [index.reshape((1,) + index.shape) for index in flattened_indexes],
-        axis=0, shape=shape, dtype=flattened_indexes[0].dtype)  # does stack
+        axis=0, shape=concat_shape, dtype=flattened_indexes[0].dtype)
 
     take_idx = _sum(flattened_indexes, axis=0)
 
