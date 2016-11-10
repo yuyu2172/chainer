@@ -2136,8 +2136,12 @@ def _adv_getitem(a, slices):
     for i, s in zip(slices[li:ri+1], strides):
         flattened_indexes.append(i * s)  
     
-    import cupy
-    take_idx = _sum(cupy.stack(flattened_indexes), axis=0)
+    shape = (len(flattened_indexes),) + br_shape
+    flattened_indexes = concatenate(
+        [index.reshape((1,) + index.shape) for index in flattened_indexes],
+        axis=0, shape=shape, dtype=flattened_indexes[0].dtype)  # does stack
+
+    take_idx = _sum(flattened_indexes, axis=0)
 
     out_flat = input_flat.take(take_idx.flatten(), axis=li)
 
