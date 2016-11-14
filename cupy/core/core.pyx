@@ -601,6 +601,11 @@ cdef class ndarray:
         """
         _scatter_op(self, ind, v, axis, op='update')
 
+    cpdef scatter_add(self, ind, v, axis=None):
+        """Add specified elements of an array with given values.
+        """
+        _scatter_op(self, ind, v, axis, op='add')
+
     cpdef repeat(self, repeats, axis=None):
         """Returns an array with repeated arrays along an axis.
 
@@ -1865,6 +1870,32 @@ cdef _scatter_update_kernel_0axis = ElementwiseKernel(
     'cupy_put_0axis')
 
 
+cdef _scatter_add_kernel = ElementwiseKernel(
+    'raw T v, S indices, int32 cdim, int32 rdim, int32 adim, S index_range',
+    'raw T a',
+    '''
+      S wrap_indices = indices % index_range;
+      if (wrap_indices < 0) wrap_indices += index_range;
+
+      int li = i / (rdim * cdim);
+      int ri = i % rdim;
+      atomicAdd(&a[(li * adim + wrap_indices) * rdim + ri], v[i]);
+    ''',
+    'scatter_add')
+
+
+cdef _scatter_add_kernel_0axis = ElementwiseKernel(
+    'T v, S indices, int32 rdim, S index_range',
+    'raw T a',
+    '''
+      S wrap_indices = indices % index_range;
+      if (wrap_indices < 0) wrap_indices += index_range;
+ 
+      atomicAdd(&a[wrap_indices * rdim + i % rdim], v);
+      ''',
+    'cupy_put_0axis')
+
+
 cpdef ndarray _take(ndarray a, indices, axis=None, ndarray out=None):
     if a.ndim == 0:
         a = a[None]
@@ -1961,7 +1992,12 @@ cpdef _scatter_op(ndarray a, ind, v, axis=None, op=''):
             _scatter_update_kernel(
                 v, ind, cdim, rdim, adim, index_range, a.reduced_view())
     elif op == 'add':
-        pass
+        if axis == 0 or axis is None:
+            _scatter_add_kernel_0axis(
+                v, ind, rdim, index_range, a.reduced_view())
+        else:
+            _scatter_add_kernel(
+                v, ind, cdim, rdim, adim, index_range, a.reduced_view())
     else:
         raise ValueError('provided op is not supported')
 
