@@ -2068,6 +2068,11 @@ cpdef ndarray _adv_getitem(ndarray a, slices):
     arr_slices = [s for s in slices if isinstance(s, ndarray)]
     br_shape = broadcast(*arr_slices).shape
 
+    # broadcast all arrays to the largest shape
+    for i, s in enumerate(list(slices)):
+        if (isinstance(s, ndarray)):
+            slices[i] = broadcast_to(slices[i], br_shape)
+
     # check if transpose is necessasry
     # li:  index of the leftmost array in slices
     # ri:  index of the rightmost array in slices
@@ -2086,11 +2091,6 @@ cpdef ndarray _adv_getitem(ndarray a, slices):
                 else:
                     prev_arr_i = i
                     ri = i
-
-    # broadcast all arrays to the largest shape
-    for i, s in enumerate(list(slices)):
-        if (isinstance(s, ndarray)):
-            slices[i] = broadcast_to(slices[i], br_shape)
 
     if do_transpose:
         transp = range(a.ndim)
