@@ -1069,7 +1069,7 @@ cdef class ndarray:
                 if issubclass(s.dtype.type, numpy.integer):
                     advanced = True
                 else:
-                    raise ValueError('Advanced indexing with ' +
+                    raise IndexError('Advanced indexing with ' +
                                      'non-integer array is not supported')
 
         if advanced:
@@ -1098,7 +1098,10 @@ cdef class ndarray:
                     basic_slices.append(slice(None))
                     adv_slices.append(array(s, ndmin=1))
                 else:
-                    raise ValueError
+                    raise IndexError(
+                        'only integers, slices (`:`), ellipsis (`...`),'
+                        'numpy.newaxis (`None`) and integer or'
+                        'boolean arrays are valid indices')
 
             # check if this is a combination of basic and advanced indexing
             noneslice = slice(None)
