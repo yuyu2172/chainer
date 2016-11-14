@@ -1059,29 +1059,18 @@ cdef class ndarray:
         if len(slices) > self.ndim + n_newaxes:
             raise IndexError('too many indices for array')
 
-        # Check if advanced is true and if there are multiple integer indexing
+        # Check if advanced is true, and convert list/NumPy arrays to ndarray
         advanced = False
-        axis = None
         for i, s in enumerate(slices):
             if isinstance(s, (list, numpy.ndarray)):
                 s = array(s)
                 slices[i] = s
             if isinstance(s, ndarray):
                 if issubclass(s.dtype.type, numpy.integer):
-                    if axis is not None:
-                        advanced = True
-                        axis = None
-                    elif not advanced and axis is None:
-                        advanced = True
-                        axis = i
+                    advanced = True
                 else:
                     raise ValueError('Advanced indexing with ' +
                                      'non-integer array is not supported')
-            if isinstance(s, int):
-                if advanced:
-                    axis = None
-                else:
-                    axis = i
 
         if advanced:
             # When slices are combination of basic and advanced indexing,
@@ -1118,7 +1107,9 @@ cdef class ndarray:
                     self = self[tuple(basic_slices)]
                     break
 
-            if axis is not None:
+            arr_slices_mask = [not isinstance(s, slice) for s in adv_slices]
+            if sum(arr_slices_mask) == 1:
+                axis = arr_slices_mask.index(True)
                 return self.take(slices[axis], axis)
             return _adv_getitem(self, adv_slices)
 
