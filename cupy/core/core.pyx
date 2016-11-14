@@ -1074,11 +1074,11 @@ cdef class ndarray:
 
         if advanced:
             # When slices are combination of basic and advanced indexing,
-            # slice and None are handled independently by the basic 
+            # slice and None are handled independently by the basic
             # indexing routine.
             # Integer and ndarray are handled by the adv-indexing routine.
-            # In the routine, Integer and ndarray of dimension zero are
-            # treated as array of shape (1,).
+            # In the adv-indexing routine, Integer and ndarray of dimension
+            # zero are treated as an array of shape (1,).
             basic_slices = []
             adv_slices = []
             for i, s in enumerate(slices):
@@ -1088,7 +1088,7 @@ cdef class ndarray:
                 elif s is None:
                     basic_slices.append(None)
                     adv_slices.append(slice(None))
-                elif (isinstance(s, ndarray) and 
+                elif (isinstance(s, ndarray) and
                         issubclass(s.dtype.type, numpy.integer)):
                     basic_slices.append(slice(None))
                     if s.ndim == 0:
@@ -2108,7 +2108,8 @@ cpdef ndarray _adv_getitem(ndarray a, slices):
         ri = p - 1
 
     # flatten the array-indexed dimensions
-    shape = a.shape[:li]  + (internal.prod_ssize_t(a.shape[li:ri+1]),) + a.shape[ri+1:]
+    shape = a.shape[:li] +\
+        (internal.prod_ssize_t(a.shape[li:ri+1]),) + a.shape[ri+1:]
     input_flat = a.reshape(shape)
 
     # build the strides
