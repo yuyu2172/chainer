@@ -2128,7 +2128,7 @@ cpdef ndarray _adv_getitem(ndarray a, slices):
         slices[i] = slices[i] % a.shape[i]
 
     flattened_indexes = []
-    for stride, s in zip(stride, slices[li:ri+1]):
+    for stride, s in zip(strides, slices[li:ri+1]):
         flattened_indexes.append(stride * s)
 
     # do stack: flattened_indexes = stack(flattened_indexes, axis=0)
