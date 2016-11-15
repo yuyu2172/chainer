@@ -598,11 +598,29 @@ cdef class ndarray:
 
     cpdef scatter_update(self, ind, v, axis=0):
         """Replaces specified elements of an array with given values.
+
+        Args:
+            ind (int or array-like): Indices of elements that this function
+                takes.
+            v (array-like): Values to place in ``self`` at target indices.
+            axis (int): The axis along which to select indices.
+
         """
         _scatter_op(self, ind, v, axis, op='update')
 
     cpdef scatter_add(self, ind, v, axis=0):
         """Add specified elements of an array with given values.
+
+        Args:
+            ind (int or array-like): Indices of elements that this function
+                takes.
+            v (array-like): Values to increment in ``self`` at target indices.
+            axis (int): The axis along which to select indices.
+
+        Note:
+            Supports only ``numpy.float32``, ``numpy.float64`` and
+                ``numpy.int32``.
+
         """
         _scatter_op(self, ind, v, axis, op='add')
 
