@@ -624,6 +624,38 @@ cdef class ndarray:
         """
         _scatter_op(self, ind, v, axis, op='add')
 
+    cpdef scatter_multi_array_update(self, slices, value):
+        """Supports slices composed of multiple arrays
+        """
+        if not isinstance(slices, tuple):
+            slices = [slices]
+        else:
+            slices = list(slices)
+
+        axis = None
+        for i, s in enumerate(slices):
+            if isinstance(s, (list, numpy.ndarray)):
+                s = array(s)
+                slices[i] = s
+            if isinstance(s, ndarray):
+                if issubclass(s.dtype.type, numpy.integer):
+                    axis = i
+                else:
+                    raise IndexError('Advanced indexing with ' +
+                                     'non-integer array is not supported')
+            elif isinstance(s, slice) and s == slice(None):
+                pass
+            else:
+                raise IndexError('Only combination of slice(None) and integer array is supported')
+
+        shape, take_idx, transp, out_flat_shape, li = _adv_slicing(a, slices)
+
+        a = a.transpose(*transp)
+        input_flat = a.reshape(shape)
+        value = broadcast_to(value, out_flat_shape)
+        input_flat.scatter_update(take_idx.flatten(), value, axis=li)
+
+
     cpdef repeat(self, repeats, axis=None):
         """Returns an array with repeated arrays along an axis.
 
@@ -2150,7 +2182,7 @@ cpdef ndarray _diagonal(ndarray a, Py_ssize_t offset=0, Py_ssize_t axis1=0,
     return ret
 
 
-cpdef ndarray _adv_getitem(ndarray a, slices):
+cpdef _adv_slicing(ndarray a, slices):
     # slices consist of either None or ndarray of dim>=1
     cdef int i, p, li, ri
     cdef ndarray take_idx, input_flat, out_flat, o
@@ -2182,8 +2214,8 @@ cpdef ndarray _adv_getitem(ndarray a, slices):
                     prev_arr_i = i
                     ri = i
 
+    transp = range(a.ndim)
     if do_transpose:
-        transp = range(a.ndim)
         p = 0
         for i, s in enumerate(list(slices)):
             if isinstance(s, ndarray):
@@ -2192,7 +2224,7 @@ cpdef ndarray _adv_getitem(ndarray a, slices):
                 tmp = slices.pop(i)
                 slices.insert(p, tmp)
                 p += 1
-        a = a.transpose(*transp)
+        # a = a.transpose(*transp)
 
         li = 0
         ri = p - 1
@@ -2200,7 +2232,6 @@ cpdef ndarray _adv_getitem(ndarray a, slices):
     # flatten the array-indexed dimensions
     shape = a.shape[:li] +\
         (internal.prod_ssize_t(a.shape[li:ri+1]),) + a.shape[ri+1:]
-    input_flat = a.reshape(shape)
 
     # build the strides
     strides = [1]
@@ -2224,9 +2255,19 @@ cpdef ndarray _adv_getitem(ndarray a, slices):
 
     take_idx = _sum(flattened_indexes, axis=0)
 
-    out_flat = input_flat.take(take_idx.flatten(), axis=li)
-
     out_flat_shape = a.shape[:li] + take_idx.shape + a.shape[ri+1:]
+    return shape, take_idx, transp, out_flat_shape, li
+
+
+cpdef ndarray _adv_getitem(ndarray a, slices):
+    shape, take_idx, transp, out_flat_shape, li = _adv_slicing(a, slices)
+    # shape:  a.shape[:li] + prod(index.shape) + a.shape[ri +1:]
+    # out_flat_shape: a.shape[:li] + index.shape + a.shape[ri+1:]
+    # take_idx:  ndarray of shape index.shape
+
+    a = a.transpose(*transp)
+    input_flat = a.reshape(shape)
+    out_flat = input_flat.take(take_idx.flatten(), axis=li)
     o = out_flat.reshape(out_flat_shape)
     return o
 
