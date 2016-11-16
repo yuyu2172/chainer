@@ -596,12 +596,12 @@ cdef class ndarray:
 
     # TODO(okuta): Implement put
 
-    cpdef scatter_update(self, ind, v, axis=None):
+    cpdef scatter_update(self, ind, v, axis=0):
         """Replaces specified elements of an array with given values.
         """
         _scatter_op(self, ind, v, axis, op='update')
 
-    cpdef scatter_add(self, ind, v, axis=None):
+    cpdef scatter_add(self, ind, v, axis=0):
         """Add specified elements of an array with given values.
         """
         _scatter_op(self, ind, v, axis, op='add')
@@ -1996,18 +1996,6 @@ cdef _scatter_update_kernel = ElementwiseKernel(
     'scatter_update')
 
 
-cdef _scatter_update_kernel_0axis = ElementwiseKernel(
-    'T v, S indices, int32 rdim, S index_range',
-    'raw T a',
-    '''
-      S wrap_indices = indices % index_range;
-      if (wrap_indices < 0) wrap_indices += index_range;
- 
-      a[wrap_indices * rdim + i % rdim] = v;
-      ''',
-    'cupy_put_0axis')
-
-
 cdef _scatter_add_kernel = ElementwiseKernel(
     'raw T v, S indices, int32 cdim, int32 rdim, int32 adim, S index_range',
     'raw T a',
@@ -2020,18 +2008,6 @@ cdef _scatter_add_kernel = ElementwiseKernel(
       atomicAdd(&a[(li * adim + wrap_indices) * rdim + ri], v[i]);
     ''',
     'scatter_add')
-
-
-cdef _scatter_add_kernel_0axis = ElementwiseKernel(
-    'T v, S indices, int32 rdim, S index_range',
-    'raw T a',
-    '''
-      S wrap_indices = indices % index_range;
-      if (wrap_indices < 0) wrap_indices += index_range;
- 
-      atomicAdd(&a[wrap_indices * rdim + i % rdim], v);
-      ''',
-    'cupy_put_0axis')
 
 
 cpdef ndarray _take(ndarray a, indices, axis=None, ndarray out=None):
@@ -2092,50 +2068,36 @@ cpdef ndarray _take(ndarray a, indices, axis=None, ndarray out=None):
             a.reduced_view(), indices, cdim, rdim, adim, index_range, out)
 
 
-cpdef _scatter_op(ndarray a, ind, v, axis=None, op=''):
+cpdef _scatter_op(ndarray a, ind, v, axis=0, op=''):
     if a.ndim == 0:
-        a = a[None]
+        raise ValueError("requires a.ndim >= 1")
 
-    if axis is None:
-        a = a.ravel()
-        lshape = ()
-        rshape = ()
-        adim = 1
-        index_range = a.size
-    else:
-        if not (-a.ndim <= axis < a.ndim):
-            raise ValueError('Axis overrun')
-        if a.ndim != 0:
-            axis %= a.ndim
+    if not (-a.ndim <= axis < a.ndim):
+        raise ValueError('Axis overrun')
+    if a.ndim != 0:
+        axis %= a.ndim
 
-        lshape = a.shape[:axis]
-        rshape = a.shape[axis + 1:]
-        adim = a.shape[axis]
-        index_range = adim
+    lshape = a.shape[:axis]
+    rshape = a.shape[axis + 1:]
+    adim = a.shape[axis]
+    index_range = adim
 
     ind = array(ind, dtype=int)
     v_shape = lshape + ind.shape + rshape
-    v = broadcast_to(v, v_shape)  # this was in manipulation/dims.pyx
+    v = broadcast_to(v, v_shape)
 
     cdim = ind.size
     rdim = internal.prod(rshape)
     ind = ind.reshape(
         (1,) * len(lshape) + ind.shape + (1,) * len(rshape))
+    ind = broadcast_to(ind, v_shape)
 
     if op == 'update':
-        if axis == 0 or axis is None:
-            _scatter_update_kernel_0axis(
-                v, ind, rdim, index_range, a.reduced_view())
-        else:
-            _scatter_update_kernel(
-                v, ind, cdim, rdim, adim, index_range, a.reduced_view())
+        _scatter_update_kernel(
+            v, ind, cdim, rdim, adim, index_range, a.reduced_view())
     elif op == 'add':
-        if axis == 0 or axis is None:
-            _scatter_add_kernel_0axis(
-                v, ind, rdim, index_range, a.reduced_view())
-        else:
-            _scatter_add_kernel(
-                v, ind, cdim, rdim, adim, index_range, a.reduced_view())
+        _scatter_add_kernel(
+            v.reduced_view(), ind, cdim, rdim, adim, index_range, a.reduced_view())
     else:
         raise ValueError('provided op is not supported')
 
