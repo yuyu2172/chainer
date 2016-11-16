@@ -1202,6 +1202,90 @@ cdef class ndarray:
 
     def __setitem__(self, slices, value):
         cdef ndarray v, x, y
+
+        cdef Py_ssize_t i, j, offset, ndim, n_newaxes, n_ellipses, ellipsis
+        cdef Py_ssize_t ellipsis_sizem, s_start, s_stop, s_step, dim, ind
+        cdef vector.vector[Py_ssize_t] shape, strides
+        if not isinstance(slices, tuple):
+            slices = [slices]
+        else:
+            slices = list(slices)
+
+        # Expand ellipsis into empty slices
+        ellipsis = -1
+        n_newaxes = n_ellipses = 0
+        for i, s in enumerate(slices):
+            if s is None:
+                n_newaxes += 1
+            elif s is Ellipsis:
+                n_ellipses += 1
+                ellipsis = i
+        ndim = self._shape.size()
+        noneslices = [slice(None)]
+        if n_ellipses > 0:
+            if n_ellipses > 1:
+                raise ValueError('Only one Ellipsis is allowed in index')
+            ellipsis_size = ndim - (<Py_ssize_t>len(slices) - n_newaxes - 1)
+            slices[ellipsis:ellipsis + 1] = noneslices * ellipsis_size
+
+        slices += noneslices * (ndim - <Py_ssize_t>len(slices) + n_newaxes)
+
+        if len(slices) > self.ndim + n_newaxes:
+            raise IndexError('too many indices for array')
+
+        # Check if advanced is true, and convert list/NumPy arrays to ndarray
+        advanced = False
+        for i, s in enumerate(slices):
+            if isinstance(s, (list, numpy.ndarray)):
+                s = array(s)
+                slices[i] = s
+            if isinstance(s, ndarray):
+                if issubclass(s.dtype.type, numpy.integer):
+                    advanced = True
+                else:
+                    raise IndexError('Advanced indexing with ' +
+                                     'non-integer array is not supported')
+
+        if advanced:
+            basic_slices = []
+            adv_slices = []
+            for i, s in enumerate(slices):
+                if type(s) is slice:
+                    basic_slices.append(s)
+                    adv_slices.append(slice(None))
+                elif s is None:
+                    basic_slices.append(None)
+                    adv_slices.append(slice(None))
+                elif (isinstance(s, ndarray) and
+                        issubclass(s.dtype.type, numpy.integer)):
+                    basic_slices.append(slice(None))
+                    if s.ndim == 0:
+                        s = s.reshape((1,))
+                    adv_slices.append(s)
+                elif isinstance(s, int):
+                    basic_slices.append(slice(None))
+                    adv_slices.append(array(s, ndmin=1))
+                else:
+                    raise IndexError(
+                        'only integers, slices (`:`), ellipsis (`...`),'
+                        'numpy.newaxis (`None`) and integer or'
+                        'boolean arrays are valid indices')
+
+            # check if this is a combination of basic and advanced indexing
+            a = self
+            for s in basic_slices:
+                if s is None or (isinstance(s, slice) and s != slice(None)):
+                    a = self[tuple(basic_slices)]
+                    break
+
+            arr_slices_mask = [not isinstance(s, slice) for s in adv_slices]
+            if sum(arr_slices_mask) == 1:
+                axis = arr_slices_mask.index(True)
+                _scatter_op(a, adv_slices, value, axis, op='update')
+                return
+            _scatter_multi_array_op(a, adv_slices, value, op='update')
+            return
+
         v = self[slices]
         if isinstance(value, ndarray):
             y, x = broadcast(v, value).values
