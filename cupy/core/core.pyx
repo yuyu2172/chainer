@@ -627,36 +627,10 @@ cdef class ndarray:
     cpdef scatter_multi_array_update(self, slices, value):
         """Supports slices composed of multiple arrays
         """
-        if not isinstance(slices, tuple):
-            slices = [slices]
-        else:
-            slices = list(slices)
+        _scatter_multi_array_op(self, slices, value, op='update')
 
-        axis = None
-        for i, s in enumerate(slices):
-            if isinstance(s, (list, numpy.ndarray)):
-                s = array(s)
-                slices[i] = s
-            if isinstance(s, ndarray):
-                if issubclass(s.dtype.type, numpy.integer):
-                    axis = i
-                else:
-                    raise IndexError('Advanced indexing with ' +
-                                     'non-integer array is not supported')
-            elif isinstance(s, slice) and s == slice(None):
-                pass
-            else:
-                raise IndexError('Only combination of slice(None) and integer array is supported')
-
-        if not isinstance(value, ndarray):
-            value = array(value)
-
-        shape, take_idx, transp, out_flat_shape, li = _adv_slicing(self, slices)
-
-        a = self.transpose(*transp)
-        input_flat = a.reshape(shape)
-        value = broadcast_to(value, out_flat_shape)
-        input_flat.scatter_update(take_idx.flatten(), value, axis=li)
+    cpdef scatter_multi_array_add(self, slices, value):
+        _scatter_multi_array_op(self, slices, value, op='add')
 
 
     cpdef repeat(self, repeats, axis=None):
@@ -2153,6 +2127,38 @@ cpdef _scatter_op(ndarray a, ind, v, axis=0, op=''):
             v.reduced_view(), ind, cdim, rdim, adim, index_range, a.reduced_view())
     else:
         raise ValueError('provided op is not supported')
+
+
+cpdef _scatter_multi_array_op(ndarray a, slices, value, op=''):
+    if not isinstance(slices, tuple):
+        slices = [slices]
+    else:
+        slices = list(slices)
+
+    axis = None
+    for i, s in enumerate(slices):
+        if isinstance(s, (list, numpy.ndarray)):
+            s = array(s)
+            slices[i] = s
+        if isinstance(s, ndarray):
+            if issubclass(s.dtype.type, numpy.integer):
+                axis = i
+            else:
+                raise IndexError('Advanced indexing with ' +
+                                    'non-integer array is not supported')
+        elif isinstance(s, slice) and s == slice(None):
+            pass
+        else:
+            raise IndexError('Only combination of slice(None) and integer array is supported')
+
+    if not isinstance(value, ndarray):
+        value = array(value)
+
+    shape, take_idx, transp, out_flat_shape, axis = _adv_slicing(a, slices)
+    a = a.transpose(*transp)
+    input_flat = a.reshape(shape)
+    value = broadcast_to(value, out_flat_shape)
+    _scatter_op(input_flat, take_idx, value, axis=axis, op=op)
 
 
 cpdef ndarray _diagonal(ndarray a, Py_ssize_t offset=0, Py_ssize_t axis1=0,
