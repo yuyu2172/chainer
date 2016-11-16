@@ -1283,7 +1283,7 @@ cdef class ndarray:
                 axis = arr_slices_mask.index(True)
                 _scatter_op(a, adv_slices, value, axis, op='update')
                 return
-            _scatter_multi_array_op(a, adv_slices, value, op='update')
+            _scatter_multi_array_op(a, tuple(adv_slices), value, op='update')
             return
 
         v = self[slices]
