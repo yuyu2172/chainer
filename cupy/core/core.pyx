@@ -1279,6 +1279,7 @@ cdef class ndarray:
                     break
 
             arr_slices_mask = [not isinstance(s, slice) for s in adv_slices]
+            value = array(value)
             if sum(arr_slices_mask) == 1:
                 axis = arr_slices_mask.index(True)
                 _scatter_op(a, adv_slices, value, axis, op='update')
@@ -2214,27 +2215,6 @@ cpdef _scatter_op(ndarray a, ind, v, axis=0, op=''):
 
 
 cpdef _scatter_multi_array_op(ndarray a, slices, value, op=''):
-    if not isinstance(slices, tuple):
-        slices = [slices]
-    else:
-        slices = list(slices)
-
-    axis = None
-    for i, s in enumerate(slices):
-        if isinstance(s, (list, numpy.ndarray)):
-            s = array(s)
-            slices[i] = s
-        if isinstance(s, ndarray):
-            if issubclass(s.dtype.type, numpy.integer):
-                axis = i
-            else:
-                raise IndexError('Advanced indexing with ' +
-                                    'non-integer array is not supported')
-        elif isinstance(s, slice) and s == slice(None):
-            pass
-        else:
-            raise IndexError('Only combination of slice(None) and integer array is supported')
-
     if not isinstance(value, ndarray):
         value = array(value)
 
@@ -2279,6 +2259,8 @@ cpdef _adv_slicing(ndarray a, slices):
     # slices consist of either None or ndarray of dim>=1
     cdef int i, p, li, ri
     cdef ndarray take_idx, input_flat, out_flat, o
+    if isinstance(slices, tuple):
+        slices = list(slices)
 
     arr_slices = [s for s in slices if isinstance(s, ndarray)]
     br_shape = broadcast(*arr_slices).shape
@@ -2342,6 +2324,9 @@ cpdef _adv_slicing(ndarray a, slices):
 
     # do stack: flattened_indexes = stack(flattened_indexes, axis=0)
     concat_shape = (len(flattened_indexes),) + br_shape
+    print flattened_indexes[0]
+    print flattened_indexes[0].shape
+    print 'dtype ', flattened_indexes.dtype
     flattened_indexes = concatenate(
         [index.reshape((1,) + index.shape) for index in flattened_indexes],
         axis=0, shape=concat_shape, dtype=flattened_indexes[0].dtype)
