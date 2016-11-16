@@ -648,9 +648,12 @@ cdef class ndarray:
             else:
                 raise IndexError('Only combination of slice(None) and integer array is supported')
 
-        shape, take_idx, transp, out_flat_shape, li = _adv_slicing(a, slices)
+        if not isinstance(value, ndarray):
+            value = array(value)
 
-        a = a.transpose(*transp)
+        shape, take_idx, transp, out_flat_shape, li = _adv_slicing(self, slices)
+
+        a = self.transpose(*transp)
         input_flat = a.reshape(shape)
         value = broadcast_to(value, out_flat_shape)
         input_flat.scatter_update(take_idx.flatten(), value, axis=li)
@@ -2224,7 +2227,7 @@ cpdef _adv_slicing(ndarray a, slices):
                 tmp = slices.pop(i)
                 slices.insert(p, tmp)
                 p += 1
-        # a = a.transpose(*transp)
+        a = a.transpose(*transp)
 
         li = 0
         ri = p - 1
