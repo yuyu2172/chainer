@@ -56,7 +56,7 @@ class ComputationalGraph(object):
     """
 
     def __init__(self, nodes, edges, variable_style=None, function_style=None,
-                 rankdir='TB'):
+                 rankdir='TB', edge_attributes=None):
         """Initializes computational graph.
 
         Args:
@@ -68,6 +68,8 @@ class ComputationalGraph(object):
             rankdir (str): Direction of the graph that must be
                 TB (top to bottom), BT (bottom to top), LR (left to right)
                 or RL (right to left).
+            edge_attributes (dict of edge: {param_name: param}): Attributes of
+                edges.
 
         """
         self.nodes = nodes
@@ -77,6 +79,7 @@ class ComputationalGraph(object):
         if rankdir not in ('TB', 'BT', 'LR', 'RL'):
             raise ValueError('rankdir must be in TB, BT, LR or RL.')
         self.rankdir = rankdir
+        self.edge_attributes = edge_attributes
 
     def _to_dot(self):
         """Converts graph in dot format.
@@ -108,7 +111,14 @@ class ComputationalGraph(object):
                     'head and tail should be the set of Variable and Function')
             head_node = DotNode(head, head_attr)
             tail_node = DotNode(tail, tail_attr)
-            ret += "%s -> %s;" % (head_node.id_, tail_node.id_)
+            if edge in self.edge_attributes:
+                edge_attr = self.edge_attributes[edge]
+                ret += "%s -> %s[" % (head_node.id_, tail_node.id_)
+                for key, val in edge_attr.items():
+                    ret += "%s=\"%s\"," % (key, val)
+                ret += "];"
+            else:
+                ret += "%s -> %s;" % (head_node.id_, tail_node.id_)
         ret += "}"
         return ret
 
@@ -131,7 +141,7 @@ class ComputationalGraph(object):
 
 def build_computational_graph(outputs, remove_split=True,
                               variable_style=None, function_style=None,
-                              rankdir='TB'):
+                              rankdir='TB', edge_attributes=None):
     """Builds a graph of functions and variables backward-reachable from outputs.
 
     Args:
@@ -146,6 +156,9 @@ def build_computational_graph(outputs, remove_split=True,
         rankdir (str): Direction of the graph that must be
             TB (top to bottom), BT (bottom to top), LR (left to right)
             or RL (right to left).
+        edge_attributes(dict of edge: {param_name: param}): Attributes of
+            edges. Edges that are not included in this dictionary will not
+            have attributes.
 
     Returns:
         ComputationalGraph: A graph consisting of nodes and edges that
@@ -218,4 +231,4 @@ def build_computational_graph(outputs, remove_split=True,
                     nodes.add(HashableObject(input_))
                     nodes.add(HashableObject(cand))
     return ComputationalGraph(list(i.v for i in nodes), list(seen_edges),
-                              variable_style, function_style, rankdir)
+                              variable_style, function_style, rankdir, edge_attributes)
