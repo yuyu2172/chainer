@@ -551,6 +551,59 @@ cdef class ElementwiseKernel:
         kern.linear_launch(indexer.size, inout_args)
         return ret
 
+    def custom_call(self, grid, block, args, shared_mem=0, stream=None, size=None):
+        cdef function.Function kern
+
+        n_args = len(args)
+        if n_args != self.nin and n_args != self.nargs:
+            raise TypeError('Wrong number of arguments for %s' % self.name)
+        args = _preprocess_args(args)
+
+        values, shape = _broadcast(args, self.params, size is not None)
+        in_args = values[:self.nin]
+        out_args = values[self.nin:]
+
+        in_ndarray_types = tuple(
+            [a.dtype.type if isinstance(a, ndarray) else None
+             for a in in_args])
+        out_ndarray_types = tuple([a.dtype.type for a in out_args])
+
+        in_types, out_types, types = _decide_params_type(
+            self.in_params, self.out_params,
+            in_ndarray_types, out_ndarray_types)
+
+        is_size_specified = False
+        if size is not None:
+            shape = size,
+            is_size_specified = True
+
+        out_args = _get_out_args_with_params(
+            out_args, out_types, shape, self.out_params, is_size_specified)
+        if self.nout == 1:
+            ret = out_args[0]
+        else:
+            ret = tuple(out_args)
+
+        if 0 in shape:
+            return ret
+
+        inout_args = [x if isinstance(x, ndarray) else in_types[i](x)
+                      for i, x in enumerate(in_args)]
+        inout_args += out_args
+
+        if self.reduce_dims:
+            inout_args, shape = _reduce_dims(
+                inout_args, self.params, shape)
+        indexer = Indexer(shape)
+        inout_args.append(indexer)
+
+        args_info = _get_args_info(inout_args)
+        kern = _get_elementwise_kernel(
+            args_info, types, self.params, self.operation,
+            self.name, self.preamble, self.kwargs)
+        kern(grid, block, inout_args, shared_mem, stream)
+        return ret
+
 
 @util.memoize(for_each_device=True)
 def _get_ufunc_kernel(
