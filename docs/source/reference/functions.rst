@@ -167,6 +167,10 @@ space2depth
 ~~~~~~~~~~~
 .. autofunction:: space2depth
 
+spatial_tf_grid
+~~~~~~~~~~~~~~~
+.. autofunction:: spatial_tf_grid
+
 spatial_tf_sampler
 ~~~~~~~~~~~~~~~~~~
 .. autofunction:: spatial_tf_sampler
