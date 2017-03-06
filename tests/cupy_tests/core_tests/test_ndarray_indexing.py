@@ -4,6 +4,7 @@ from cupy import testing
 
 
 @testing.parameterize(
+    {'shape': (2, 3, 4), 'transpose': None, 'indexes': ()},
     {'shape': (2, 3, 4), 'transpose': None, 'indexes': (1, 0, 2)},
     {'shape': (2, 3, 4), 'transpose': None, 'indexes': (-1, 0, -2)},
     {'shape': (2, 3, 4), 'transpose': (2, 0, 1), 'indexes': (1, 0, 2)},
