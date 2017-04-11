@@ -320,16 +320,3 @@ class ParallelUpdater(StandardUpdater):
 
         for model in six.itervalues(models_others):
             model.copyparams(model_main)
-
-
-def _calc_loss(model, in_arrays):
-    if isinstance(in_arrays, tuple):
-        in_vars = tuple(variable.Variable(x) for x in in_arrays)
-        return model(*in_vars)
-    elif isinstance(in_arrays, dict):
-        in_vars = {key: variable.Variable(x)
-                   for key, x in six.iteritems(in_arrays)}
-        return model(**in_vars)
-    else:
-        in_vars = variable.Variable(in_arrays)
-        return model(in_vars)

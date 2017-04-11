@@ -4,8 +4,8 @@ import six
 
 import chainer
 from chainer import cuda
+from chainer import variable
 from chainer.dataset import convert
-from chainer.training.updater import _calc_loss
 from chainer.training.updater import StandardUpdater
 
 try:
@@ -76,9 +76,6 @@ class _Worker(multiprocessing.Process):
                 self.model.scatter_params(pp)
                 pp = None
 
-                # Sending observation via pipe is too slow.
-                # self.pipe.send(observation)
-
 
 class MultiprocessParallelUpdater(StandardUpdater):
 
@@ -93,6 +90,10 @@ class MultiprocessParallelUpdater(StandardUpdater):
     GPUs in one machine. It is based on synchronous parallel SGD: it
     parallelizes the gradient computation over a mini-batch, and updates the
     parameters only in the main device.
+
+    It does not transfer the values collected by :class:`Reporter` in the sub
+    devices to the main device. So you can only see the reported values in
+    the main device.
 
     Args:
         iterators: List of dataset iterator for the training dataset. The
@@ -128,7 +129,7 @@ class MultiprocessParallelUpdater(StandardUpdater):
             optimizer.eps *= len(devices)
         elif optim in ('RMSpropGraves', 'AdaDelta'):
             optimizer.eps *= len(devices) ** 2  # not quite right for AdaDelta
-        else:
+        elif hasattr(optim, 'lr'):
             optimizer.lr /= len(devices)
 
         super(MultiprocessParallelUpdater, self).__init__(
@@ -214,13 +215,22 @@ class MultiprocessParallelUpdater(StandardUpdater):
                 self.comm.bcast(pp.data.ptr, pp.size, nccl.NCCL_FLOAT,
                                 0, null_stream.ptr)
 
-            # Sending observation via pipe is too slow.
-            # for pipe in self._pipes:
-            #     chainer.reporter.report(pipe.recv())
-
     def finalize(self):
         self._send_message(('finalize', None))
 
         for worker in self._workers:
             print("join", worker)
             worker.join()
+
+
+def _calc_loss(model, in_arrays):
+    if isinstance(in_arrays, tuple):
+        in_vars = tuple(variable.Variable(x) for x in in_arrays)
+        return model(*in_vars)
+    elif isinstance(in_arrays, dict):
+        in_vars = {key: variable.Variable(x)
+                   for key, x in six.iteritems(in_arrays)}
+        return model(**in_vars)
+    else:
+        in_vars = variable.Variable(in_arrays)
+        return model(in_vars)
