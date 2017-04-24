@@ -13,7 +13,7 @@ except ImportError as e:
 from chainer.dataset.convert import concat_examples
 from chainer.dataset import download
 from chainer import flag
-from chainer.functions.activation.relu import relu
+from chainer.functions.activation.relu import relu as relu_original
 from chainer.functions.activation.softmax import softmax
 from chainer.functions.array.reshape import reshape
 from chainer.functions.math.sum import sum
@@ -27,6 +27,10 @@ from chainer.links.connection.linear import Linear
 from chainer.serializers import npz
 from chainer.utils import imgproc
 from chainer.variable import Variable
+
+
+def relu(x):
+    return relu_original(x, use_cudnn=False)
 
 
 class VGG16Layers(link.Chain):
