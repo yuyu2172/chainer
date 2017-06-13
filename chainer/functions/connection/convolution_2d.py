@@ -33,7 +33,7 @@ def _pair(x):
 
 class Convolution2DFunction(function.Function):
 
-    def __init__(self, stride=1, pad=0, cover_all=False, **kwargs):
+    def __init__(self, stride=1, pad=0, cover_all=False, dilate=1, **kwargs):
         argument.check_unexpected_kwargs(
             kwargs, deterministic="deterministic argument is not "
             "supported anymore. "
@@ -44,6 +44,7 @@ class Convolution2DFunction(function.Function):
         self.sy, self.sx = _pair(stride)
         self.ph, self.pw = _pair(pad)
         self.cover_all = cover_all
+        self.dy, self.dx = _pair(dilate)
 
     def check_type_forward(self, in_types):
         n_in = in_types.size()
@@ -109,13 +110,14 @@ class Convolution2DFunction(function.Function):
         n, c, h, w = x.shape
 
         out_h = conv.get_conv_outsize(h, kh, self.sy, self.ph,
-                                      cover_all=self.cover_all)
+                                      cover_all=self.cover_all, d=self.dy)
         assert out_h > 0, 'Height in the output should be positive.'
         out_w = conv.get_conv_outsize(w, kw, self.sx, self.pw,
-                                      cover_all=self.cover_all)
+                                      cover_all=self.cover_all, d=self.dx)
         assert out_w > 0, 'Width in the output should be positive.'
 
         y = cuda.cupy.empty((n, out_c, out_h, out_w), dtype=x.dtype)
+        # print('# conv_2d.py:120, y.shape: {}'.format(y.shape))  # debug
         if (not self.cover_all and chainer.should_use_cudnn('>=auto') and
                 _check_cudnn_acceptable_type(x.dtype, W.dtype)):
             x = cuda.cupy.ascontiguousarray(x)
@@ -129,7 +131,8 @@ class Convolution2DFunction(function.Function):
 
             self.filter_desc = cudnn.create_filter_descriptor(W)
             self.conv_desc = cudnn.create_convolution_descriptor(
-                (self.ph, self.pw), (self.sy, self.sx), x.dtype)
+                (self.ph, self.pw), (self.sy, self.sx), x.dtype,
+                (self.dy, self.dx))
             if b is not None:
                 self.bias_desc = cudnn.create_tensor_descriptor(
                     b[None, :, None, None])
@@ -308,7 +311,8 @@ class Convolution2DFunction(function.Function):
             return gx, gW, gb
 
 
-def convolution_2d(x, W, b=None, stride=1, pad=0, cover_all=False, **kwargs):
+def convolution_2d(x, W, b=None, stride=1, pad=0, cover_all=False, dilate=1,
+                   **kwargs):
     """convolution_2d(x, W, b=None, stride=1, pad=0, cover_all=False)
 
     Two-dimensional convolution function.
@@ -432,7 +436,7 @@ cover_all=True)
         "context where value is either `True` or `False`.")
     argument.assert_kwargs_empty(kwargs)
 
-    func = Convolution2DFunction(stride, pad, cover_all)
+    func = Convolution2DFunction(stride, pad, cover_all, dilate)
     if b is None:
         return func(x, W)
     else:
