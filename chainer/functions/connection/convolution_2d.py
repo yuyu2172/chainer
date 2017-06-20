@@ -85,7 +85,7 @@ class Convolution2DFunction(function.Function):
         kh, kw = W.shape[2:]
         self.col = conv.im2col_cpu(
             x, kh, kw, self.sy, self.sx, self.ph, self.pw,
-            cover_all=self.cover_all)
+            cover_all=self.cover_all, dy=self.dy, dx=self.dx)
         y = numpy.tensordot(
             self.col, W, ((1, 2, 3), (1, 2, 3))).astype(x.dtype, copy=False)
         if b is not None:
@@ -117,9 +117,13 @@ class Convolution2DFunction(function.Function):
         assert out_w > 0, 'Width in the output should be positive.'
 
         y = cuda.cupy.empty((n, out_c, out_h, out_w), dtype=x.dtype)
-        # print('# conv_2d.py:120, y.shape: {}'.format(y.shape))  # debug
+        self._use_cudnn = False
         if (not self.cover_all and chainer.should_use_cudnn('>=auto') and
                 _check_cudnn_acceptable_type(x.dtype, W.dtype)):
+            self._use_cudnn = True
+        if (self.dy > 1 or self.dx > 1) and _cudnn_version < 6000:
+            self._use_cudnn = False
+        if self._use_cudnn:
             x = cuda.cupy.ascontiguousarray(x)
             W = cuda.cupy.ascontiguousarray(W)
             if b is not None:
@@ -162,7 +166,7 @@ class Convolution2DFunction(function.Function):
             # Implementation using im2col
             self.col = conv.im2col_gpu(
                 x, kh, kw, self.sy, self.sx, self.ph, self.pw,
-                cover_all=self.cover_all)
+                cover_all=self.cover_all, dy=self.dy, dx=self.dx)
             y = cuda.cupy.tensordot(
                 self.col, W, ((1, 2, 3), (1, 2, 3))).astype(x.dtype,
                                                             copy=False)
@@ -194,7 +198,8 @@ class Convolution2DFunction(function.Function):
             gy, self.col, ((0, 2, 3), (0, 4, 5))).astype(W.dtype, copy=False)
         gcol = numpy.tensordot(W, gy, (0, 1)).astype(x.dtype, copy=False)
         gcol = numpy.rollaxis(gcol, 3)
-        gx = conv.col2im_cpu(gcol, self.sy, self.sx, self.ph, self.pw, h, w)
+        gx = conv.col2im_cpu(gcol, self.sy, self.sx,
+                             self.ph, self.pw, h, w, dy=self.dy, dx=self.dx)
 
         if b is None:
             return gx, gW
@@ -222,8 +227,7 @@ class Convolution2DFunction(function.Function):
         kh, kw = W.shape[2:]
 
         gW = cuda.cupy.empty_like(W)
-        if (not self.cover_all and chainer.should_use_cudnn('>=auto') and
-                _check_cudnn_acceptable_type(x.dtype, W.dtype)):
+        if self._use_cudnn:
             x = cuda.cupy.ascontiguousarray(x)
             W = cuda.cupy.ascontiguousarray(W)
             gy = cuda.cupy.ascontiguousarray(gy)
@@ -298,9 +302,8 @@ class Convolution2DFunction(function.Function):
             gcol = cuda.cupy.tensordot(W, gy, (0, 1)).astype(x.dtype,
                                                              copy=False)
             gcol = cuda.cupy.rollaxis(gcol, 3)
-
-            gx = conv.col2im_gpu(
-                gcol, self.sy, self.sx, self.ph, self.pw, h, w)
+            gx = conv.col2im_gpu(gcol, self.sy, self.sx, self.ph, self.pw,
+                                 h, w, dy=self.dy, dx=self.dx)
 
             if b is not None:
                 gb = gy.sum(axis=(0, 2, 3))
