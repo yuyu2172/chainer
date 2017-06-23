@@ -205,6 +205,8 @@ class TestConvolution2DCudnnCall(unittest.TestCase):
             self.should_call_cudnn = chainer.should_use_cudnn('>=auto') and (
                 cuda.cudnn.cudnn.getVersion() >= 3000 or
                 self.dtype != numpy.float16)
+            if self.dilate > 1 and cuda.cudnn.cudnn.getVersion() < 6000:
+                self.should_call_cudnn = False
 
     def forward(self):
         x = chainer.Variable(self.x)
@@ -234,9 +236,6 @@ class TestConvolution2DCudnnCall(unittest.TestCase):
                 should_raise_error = (self.cudnn_deterministic and
                                       self.should_call_cudnn
                                       and cuda.cudnn.cudnn.getVersion() < 3000)
-                should_raise_error = (should_raise_error or
-                                      (self.should_call_cudnn and self.dilate > 1 and
-                                       cuda.cudnn.cudnn.getVersion() < 6000))
                 if should_raise_error:
                     with self.assertRaises(ValueError):
                         y.backward()
