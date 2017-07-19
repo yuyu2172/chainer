@@ -35,7 +35,6 @@ def _pair(x):
 class Convolution2DFunction(function.Function):
 
     def __init__(self, stride=1, pad=0, cover_all=False, dilate=1, requires_x_grad=True, **kwargs):
-                 **kwargs):
         argument.check_unexpected_kwargs(
             kwargs, deterministic="deterministic argument is not "
             "supported anymore. "
