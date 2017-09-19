@@ -7,17 +7,21 @@ import sys
 import threading
 import warnings
 
+import copy
 import numpy
 import six
 
 from chainer.dataset import iterator
+from chainer.iterators.samplers.linear_sampler import LinearSampler
+from chainer.iterators.samplers.sampler import get_state
 
 
 _response_time = 1.
 _short_time = 0.001
 _PrefetchState = namedtuple('_PrefetchState', (
-    'current_position', 'epoch', 'is_new_epoch',
-    'previous_epoch_detail', 'order'))
+    'epoch', 'is_new_epoch', 'current_epoch_detail', 'previous_epoch_detail',
+    'sampler_state'
+))
 
 
 class MultiprocessIterator(iterator.Iterator):
@@ -54,15 +58,19 @@ class MultiprocessIterator(iterator.Iterator):
     _interruption_testing = False  # for testing
 
     def __init__(self, dataset, batch_size, repeat=True, shuffle=True,
-                 n_processes=None, n_prefetch=1, shared_mem=None):
+                 n_processes=None, n_prefetch=1, shared_mem=None,
+                 sampler=None):
         self.dataset = dataset
         self.batch_size = batch_size
-        self.repeat = repeat
-        self.shuffle = shuffle
 
         self.n_processes = n_processes or multiprocessing.cpu_count()
         self.n_prefetch = max(n_prefetch, 1)
         self.shared_mem = shared_mem
+        if sampler is None:
+            sampler = LinearSampler(
+                len(dataset), batch_size, shuffle, repeat)
+        self.sampler = sampler
+        self._sampler_state = get_state(self.sampler)
 
         self._finalized = False
 
@@ -70,8 +78,9 @@ class MultiprocessIterator(iterator.Iterator):
         self.reset()
 
         self._prefetch_loop = _PrefetchLoop(
-            self.dataset, self.batch_size, self.repeat, self.shuffle,
+            self.dataset, self.batch_size,
             self.n_processes, self.n_prefetch, self.shared_mem, self._comm,
+            self.sampler,
             self._interruption_testing)
         # defer launching prefetch thread until creating the worker pool,
         # not to leave a background thread in forked processes.
@@ -89,8 +98,9 @@ class MultiprocessIterator(iterator.Iterator):
         if not measure_mode:
             batch, prefetch_state = self._comm.get()
 
-        (self.current_position, self.epoch, self.is_new_epoch,
-            self._previous_epoch_detail, self._order) = prefetch_state
+        (self.epoch, self.is_new_epoch, self._current_epoch_detail,
+         self._previous_epoch_detail,
+         self._sampler_state) = prefetch_state
         if batch is None:
             raise StopIteration
         else:
@@ -124,22 +134,25 @@ class MultiprocessIterator(iterator.Iterator):
     finalize = __del__
 
     def __copy__(self):
+        sampler = copy.copy(self.sampler)
         other = MultiprocessIterator(
-            self.dataset, self.batch_size, self.repeat, self.shuffle,
-            self.n_processes, self.n_prefetch, self.shared_mem)
+            self.dataset, self.batch_size,
+            n_processes=self.n_processes, n_prefetch=self.n_prefetch,
+            shared_mem=self.shared_mem,
+            sampler=sampler)
+        # I think it needs to copy other stuffs, like _comm
 
-        other.current_position = self.current_position
         other.epoch = self.epoch
         other.is_new_epoch = self.is_new_epoch
+        other._current_epoch_detail = self._current_epoch_detail
         other._previous_epoch_detail = self._previous_epoch_detail
-        other._order = self._order
 
         other._set_prefetch_state()
         return other
 
     @property
     def epoch_detail(self):
-        return self.epoch + self.current_position / len(self.dataset)
+        return self._current_epoch_detail
 
     @property
     def previous_epoch_detail(self):
@@ -148,26 +161,16 @@ class MultiprocessIterator(iterator.Iterator):
         return self._previous_epoch_detail
 
     def serialize(self, serializer):
-        self.current_position = serializer('current_position',
-                                           self.current_position)
         self.epoch = serializer('epoch', self.epoch)
         self.is_new_epoch = serializer('is_new_epoch', self.is_new_epoch)
-        try:
-            serializer('order', self._order)
-        except KeyError:
-            serializer('_order', self._order)
-        try:
-            self._previous_epoch_detail = serializer(
-                'previous_epoch_detail', self._previous_epoch_detail)
-        except KeyError:
-            # guess previous_epoch_detail for older version
-            self._previous_epoch_detail = self.epoch + \
-                (self.current_position - self.batch_size) / len(self.dataset)
-            if self.epoch_detail > 0:
-                self._previous_epoch_detail = max(
-                    self._previous_epoch_detail, 0.)
-            else:
-                self._previous_epoch_detail = -1.
+        self._current_epoch_detail = serializer(
+            'epoch_detail', self._current_epoch_detail)
+        self._previous_epoch_detail = serializer(
+            'previous_epoch_detail', self._previous_epoch_detail)
+
+        for key, val in self._sampler_state.items():
+            val = serializer('sampler_state' + '/' + key, val)
+            setattr(self.sampler, key, val)
         self._set_prefetch_state()
 
     def reset(self):
@@ -178,22 +181,21 @@ class MultiprocessIterator(iterator.Iterator):
         self.current_position = 0
         self.epoch = 0
         self.is_new_epoch = False
+        self._current_epoch_detail = 0.
         # use -1 instead of None internally.
         self._previous_epoch_detail = -1.
-        if self.shuffle:
-            self._order = numpy.random.permutation(len(self.dataset))
-        else:
-            self._order = None
+        self.sampler.reset()
 
         self._set_prefetch_state()
 
     def _set_prefetch_state(self):
         prefetch_state = _PrefetchState(
-            current_position=self.current_position,
             epoch=self.epoch,
             is_new_epoch=self.is_new_epoch,
+            current_epoch_detail=self._current_epoch_detail,
             previous_epoch_detail=self._previous_epoch_detail,
-            order=self._order)
+            sampler_state=get_state(self.sampler)
+        )
         self._comm.reset(prefetch_state)
 
 
@@ -266,16 +268,16 @@ class _Communicator(object):
 
 class _PrefetchLoop(object):
 
-    def __init__(self, dataset, batch_size, repeat, shuffle,
+    def __init__(self, dataset, batch_size,
                  n_processes, n_prefetch, mem_size, comm,
+                 sampler,
                  _interruption_testing):
         self.dataset = dataset
         self.batch_size = batch_size
-        self.repeat = repeat
-        self.shuffle = shuffle
         self.n_processes = n_processes
         self.mem_size = mem_size
         self.comm = comm
+        self.sampler = sampler
 
         self._allocate_shared_memory()
         self._pool = None
@@ -358,42 +360,26 @@ class _PrefetchLoop(object):
         return True
 
     def _proceed(self):
-        n = len(self.dataset)
-        (pos, epoch, is_new_epoch,
-            previous_epoch_detail, order) = self.prefetch_state
+        (epoch, _, previous_epoch_detail, _, previous_state) = self.prefetch_state
 
-        if pos < self.batch_size and epoch > 0 and not self.repeat:
-            return None  # stop iteration
+        try:
+            indices = self.sampler.get_indices(previous_state)
+        except StopIteration:
+            return None
 
-        previous_epoch_detail = epoch + pos / n
+        if len(indices) > self.batch_size:
+            raise ValueError(
+                'The number of indices sampled from a sampler should '
+                'be less than or equal to batch_size.')
 
-        new_pos = pos + self.batch_size
-        if new_pos < n:
-            if order is None:
-                indices = numpy.arange(pos, new_pos)
-            else:
-                indices = order[pos:new_pos]
-            is_new_epoch = False
-        else:
-            new_pos = new_pos - n if self.repeat else 0
-
-            if order is None:
-                indices = numpy.arange(pos, n)
-                if self.repeat:
-                    indices = \
-                        numpy.concatenate((indices, numpy.arange(new_pos)))
-            else:
-                indices = order[pos:n]
-                if self.repeat:
-                    order = numpy.random.permutation(n)
-                    indices = \
-                        numpy.concatenate((indices, order[:new_pos]))
+        if self.sampler.is_new_epoch:
             epoch += 1
-            is_new_epoch = True
-
+        
+        current_epoch_detail = epoch + self.sampler.epoch_percentage
+        state = get_state(self.sampler)
         self.prefetch_state = _PrefetchState(
-            new_pos, epoch, is_new_epoch,
-            previous_epoch_detail, order)
+            epoch, self.sampler.is_new_epoch, current_epoch_detail,
+            previous_epoch_detail, state)
         return indices
 
 
