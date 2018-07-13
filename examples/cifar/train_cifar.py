@@ -2,6 +2,7 @@ import argparse
 
 import chainer
 import chainer.links as L
+import chainer.functions as F
 from chainer import training
 from chainer.training import extensions
 from chainer.training import triggers
