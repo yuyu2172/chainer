@@ -16,10 +16,10 @@ import numpy as np
 from chainer import reporter
 from chainer.functions import accuracy as accuracy_func
 
-class Classifier(chainer.Chain):
+class SigmoidClassifier(chainer.Chain):
 
     def __init__(self, model):
-        super(Classifier, self).__init__()
+        super(SigmoidClassifier, self).__init__()
         with self.init_scope():
             self.model = model
 
@@ -75,7 +75,7 @@ def main():
     else:
         raise RuntimeError('Invalid dataset choice.')
     # model = L.Classifier(models.VGG.VGG(class_labels))
-    model = Classifier(models.VGG.VGG(class_labels))
+    model = SigmoidClassifier(models.VGG.VGG(class_labels))
     if args.gpu >= 0:
         # Make a specified GPU current
         chainer.backends.cuda.get_device_from_id(args.gpu).use()
