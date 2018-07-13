@@ -11,6 +11,29 @@ from chainer.datasets import get_cifar100
 
 import models.VGG
 
+import numpy as np
+from chainer import reporter
+from chainer.functions import accuracy as accuracy_func
+
+class Classifier(chainer.Chain):
+
+    def __init__(self, model):
+        super(Classifier, self).__init__()
+        with self.init_scope():
+            self.model = model
+
+    def __call__(self, x, t):
+        y = self.model(x)
+        # loss = F.softmax_cross_entropy(y, t)
+        new_t = self.xp.zeros((len(t), 10), dtype=np.int32)
+        new_t[self.xp.arange(len(t)), t] = 1
+        loss = F.sigmoid_cross_entropy(y, new_t)
+
+        reporter.report({'loss': loss}, self)
+        accuracy = accuracy_func(y, t)
+        reporter.report({'accuracy': accuracy}, self)
+        return loss
+
 
 def main():
     parser = argparse.ArgumentParser(description='Chainer CIFAR example:')
@@ -50,7 +73,8 @@ def main():
         train, test = get_cifar100()
     else:
         raise RuntimeError('Invalid dataset choice.')
-    model = L.Classifier(models.VGG.VGG(class_labels))
+    # model = L.Classifier(models.VGG.VGG(class_labels))
+    model = Classifier(models.VGG.VGG(class_labels))
     if args.gpu >= 0:
         # Make a specified GPU current
         chainer.backends.cuda.get_device_from_id(args.gpu).use()
