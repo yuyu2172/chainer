@@ -16,19 +16,48 @@ import numpy as np
 from chainer import reporter
 from chainer.functions import accuracy as accuracy_func
 
+
 class Classifier(chainer.Chain):
 
-    def __init__(self, model):
+    def __init__(self, model, loss):
         super(Classifier, self).__init__()
         with self.init_scope():
             self.model = model
+        self.loss = loss
 
     def __call__(self, x, t):
         y = self.model(x)
-        # loss = F.softmax_cross_entropy(y, t)
-        new_t = self.xp.zeros((len(t), 10), dtype=np.int32)
-        new_t[self.xp.arange(len(t)), t] = 1
-        loss = F.sigmoid_cross_entropy(y, new_t)
+        if self.loss == 'softmax':
+            loss = F.softmax_cross_entropy(y, t)
+            prob = F.softmax(y).data
+            max_prob = self.xp.max(prob, axis=1)
+            N = len(x)
+
+            count_0 = (max_prob < 0.1).sum() / N
+            count_1 = self.xp.logical_and(max_prob > 0.1, max_prob < 0.2).sum() / N
+            count_2 = self.xp.logical_and(max_prob > 0.2, max_prob < 0.3).sum() / N
+            count_3 = self.xp.logical_and(max_prob > 0.3, max_prob < 0.4).sum() / N
+            count_4 = self.xp.logical_and(max_prob > 0.4, max_prob < 0.5).sum() / N
+            count_5 = self.xp.logical_and(max_prob > 0.5, max_prob < 0.6).sum() / N
+            count_6 = self.xp.logical_and(max_prob > 0.6, max_prob < 0.7).sum() / N
+            count_7 = self.xp.logical_and(max_prob > 0.7, max_prob < 0.8).sum() / N
+            count_8 = self.xp.logical_and(max_prob > 0.8, max_prob < 0.9).sum() / N
+            count_9 = self.xp.logical_and(max_prob > 0.9, max_prob < 1.01).sum() / N
+            reporter.report({'count_0': count_0}, self)
+            reporter.report({'count_1': count_1}, self)
+            reporter.report({'count_2': count_2}, self)
+            reporter.report({'count_3': count_3}, self)
+            reporter.report({'count_4': count_4}, self)
+            reporter.report({'count_5': count_5}, self)
+            reporter.report({'count_6': count_6}, self)
+            reporter.report({'count_7': count_7}, self)
+            reporter.report({'count_8': count_8}, self)
+            reporter.report({'count_9': count_9}, self)
+        elif self.loss == 'sigmoid':
+            n_class = y.shape[1]
+            new_t = self.xp.zeros((len(t), n_class), dtype=np.int32)
+            new_t[self.xp.arange(len(t)), t] = 1
+            loss = F.sigmoid_cross_entropy(y, new_t)
 
         reporter.report({'loss': loss}, self)
         accuracy = accuracy_func(y, t)
@@ -54,6 +83,7 @@ def main():
                         help='Resume the training from snapshot')
     parser.add_argument('--early-stopping', type=str,
                         help='Metric to watch for early stopping')
+    parser.add_argument('--loss', type=str)
     args = parser.parse_args()
 
     print('GPU: {}'.format(args.gpu))
@@ -74,8 +104,7 @@ def main():
         train, test = get_cifar100()
     else:
         raise RuntimeError('Invalid dataset choice.')
-    # model = L.Classifier(models.VGG.VGG(class_labels))
-    model = Classifier(models.VGG.VGG(class_labels))
+    model = Classifier(models.VGG.VGG(class_labels), args.loss)
     if args.gpu >= 0:
         # Make a specified GPU current
         chainer.backends.cuda.get_device_from_id(args.gpu).use()
@@ -125,7 +154,18 @@ def main():
     # either the updater or the evaluator.
     trainer.extend(extensions.PrintReport(
         ['epoch', 'main/loss', 'validation/main/loss',
-         'main/accuracy', 'validation/main/accuracy', 'elapsed_time']))
+         'main/accuracy', 'validation/main/accuracy', 'elapsed_time',
+         'main/count_0',
+         'main/count_1',
+         'main/count_2',
+         'main/count_3',
+         'main/count_4',
+         'main/count_5',
+         'main/count_6',
+         'main/count_7',
+         'main/count_8',
+         'main/count_9',
+         ]))
 
     # Print a progress bar to stdout
     trainer.extend(extensions.ProgressBar())
